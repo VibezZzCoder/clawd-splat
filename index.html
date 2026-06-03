@@ -46,6 +46,8 @@
   }
   .game-logo .b{ color:var(--teal); text-shadow:4px 4px 0 var(--teal-dk),8px 8px 0 rgba(0,0,0,.6); }
   .tagline{ margin:0; color:var(--ink-text); font-size:clamp(13px,2.6vw,18px); letter-spacing:3px; }
+  .title-art{ image-rendering:pixelated; width:min(220px,62vw); height:auto; margin:-2px 0 -8px; }
+  @media (max-height:560px){ .title-art{ display:none; } }
   .setup-h{ margin:2px 0; color:#fff; font-size:clamp(15px,3vw,20px); letter-spacing:2px; font-weight:900; }
   .loading-status{ color:#fff; font-size:14px; letter-spacing:2px; opacity:.85; }
   .bar-track{ width:min(320px,70vw); height:14px; background:#000; border:2px solid #4a2e6b; border-radius:8px; overflow:hidden;}
@@ -92,6 +94,9 @@
     .legal-note{ right:12px; bottom:24px; max-width:none; text-align:center; }
     .credit{ right:50%; transform:translateX(50%); }
   }
+  @media (max-height:480px){
+    .legal-note,.credit{ display:none; }
+  }
 </style>
 </head>
 <body>
@@ -107,6 +112,7 @@
   <div id="title-overlay" class="game-overlay hidden">
     <h1 class="game-logo">CL<span class="b">AW</span>D&nbsp;SPLAT</h1>
     <p class="tagline">▸ TURF&nbsp;WAR ◂</p>
+    <canvas id="title-art" class="title-art" width="240" height="170" aria-hidden="true"></canvas>
     <div class="panel controls" id="title-controls"></div>
     <button class="btn" id="start-button">START</button>
   </div>
@@ -159,9 +165,12 @@ const CELL=8, GCOLS=Math.floor(W/CELL), GROWS=Math.floor(H/CELL);
 const MATCH_TIME=90, TEAM_SIZE=3;
 const TEAM={ NONE:0, ORANGE:1, TEAL:2 };
 const COL={
-  orange:'#ff6a2b', orangeDk:'#c34a17', orangeInk:'#ff7a3a',
-  teal:'#1ecfd6',   tealDk:'#0f8c93',   tealInk:'#23d2da',
-  floor:'#3a2d4d',  floorB:'#332746',   wall:'#1d1430', wallTop:'#2c1f44'
+  orange:'#ff6b2a', orangeHi:'#ffb072', orangeDk:'#b83a13', orangeInk:'#e8602a', orangeInkDk:'#bd4517', orangeInkHi:'#f59a5a',
+  teal:'#22c9d0',   tealHi:'#86f4f8',   tealDk:'#0b7f89',   tealInk:'#23b3bd',   tealInkDk:'#107883',   tealInkHi:'#74dde4',
+  floor:'#2a2733',  floorB:'#2f2c3a',   floorHi:'#3b3746',
+  wall:'#15101f',   wallTop:'#271b3b',  outline:'#090611',
+  purple:'#7b4db2', purpleHi:'#a078d8', purpleDk:'#4d2b72',
+  yellow:'#f2bb23', green:'#3d8c31'
 };
 
 // device
@@ -279,6 +288,59 @@ const clamp=(v,a,b)=>v<a?a:v>b?b:v;
 const rand=(a,b)=>a+Math.random()*(b-a);
 const dist2=(ax,ay,bx,by)=>{const dx=ax-bx,dy=ay-by;return dx*dx+dy*dy;};
 function pointInAnyObstacle(x,y,pad){ for(const o of obstacles){ if(x>o.x-pad&&x<o.x+o.w+pad&&y>o.y-pad&&y<o.y+o.h+pad) return o; } return null; }
+function pix(v){ return Math.round(v); }
+function block(g,x,y,w,h,c){ g.fillStyle=c; g.fillRect(pix(x),pix(y),pix(w),pix(h)); }
+function strokeBlock(g,x,y,w,h,c,t){
+  const s=t||2; block(g,x,y,w,s,c); block(g,x,y+h-s,w,s,c); block(g,x,y,s,h,c); block(g,x+w-s,y,s,h,c);
+}
+function plate(g,x,y,w,h,fill,edge,shade,hi){
+  block(g,x-2,y-2,w+4,h+4,edge||COL.outline);
+  block(g,x,y,w,h,fill);
+  if(shade) block(g,x,y+h-5,w,5,shade);
+  if(hi) block(g,x+3,y+3,Math.max(2,w-6),3,hi);
+}
+function isoBox(x,y,w,h,face,side,top){
+  const e=COL.outline;
+  plate(ctx,x,y,w,h,face,e,side,top);
+  block(ctx,x+4,y-5,w-8,5,top);
+  block(ctx,x+w-5,y,5,h,side);
+}
+function drawPixelOvalShadow(x,y,w,h,a){
+  ctx.save(); ctx.globalAlpha=a||0.34; ctx.fillStyle='#000';
+  const yy=pix(y), ww=pix(w), hh=pix(h);
+  for(let i=0;i<hh;i++){
+    const inset=Math.abs(i-hh/2)*0.65;
+    ctx.fillRect(pix(x-ww/2+inset),yy+i,Math.max(1,pix(ww-inset*2)),1);
+  }
+  ctx.restore();
+}
+function inkBlob(g,x,y,team,radius){
+  // spiky splatter: thin rounded spokes of varying length around a small core + flung droplets
+  const base=team===TEAM.ORANGE?COL.orangeInk:COL.tealInk;
+  const hi=team===TEAM.ORANGE?COL.orangeInkHi:COL.tealInkHi;
+  const spikes=11+(Math.random()*4|0);
+  const a0=Math.random()*Math.PI*2;
+  g.fillStyle=base; g.strokeStyle=base; g.lineCap='round'; g.lineJoin='round';
+  // thin radiating fingers — long and spindly so the centre stays light
+  for(let i=0;i<spikes;i++){
+    const a=a0+i/spikes*Math.PI*2 + rand(-0.18,0.18);
+    const len=radius*rand(0.65,1.6);
+    g.lineWidth=Math.max(1.3,radius*rand(0.1,0.17));
+    g.beginPath();
+    g.moveTo(x+Math.cos(a)*radius*0.1, y+Math.sin(a)*radius*0.1);
+    g.lineTo(x+Math.cos(a)*len, y+Math.sin(a)*len);
+    g.stroke();
+  }
+  // small core so the spokes stay connected without reading as a puddle
+  g.beginPath(); g.arc(x,y,radius*rand(0.22,0.3),0,Math.PI*2); g.fill();
+  // detached flung droplets just outside the splat
+  for(let i=0;i<4;i++){
+    const a=Math.random()*Math.PI*2, d=radius*rand(1.05,1.75);
+    g.beginPath(); g.arc(x+Math.cos(a)*d,y+Math.sin(a)*d,rand(1,2.2),0,Math.PI*2); g.fill();
+  }
+  g.fillStyle=hi;
+  g.beginPath(); g.arc(x-radius*0.14,y-radius*0.16,Math.max(1,radius*0.13),0,Math.PI*2); g.fill();
+}
 
 // world
 function buildObstacles(){
@@ -334,15 +396,7 @@ function startMatch(){
 
 // ink
 function stampInk(x,y,team,radius){
-  pctx.fillStyle=team===TEAM.ORANGE?COL.orangeInk:COL.tealInk;
-  const blobs=3+(Math.random()*3|0);
-  for(let i=0;i<blobs;i++){
-    const a=Math.random()*Math.PI*2, d=i===0?0:Math.random()*radius*0.7;
-    const br=radius*(i===0?1:rand(0.35,0.65));
-    pctx.beginPath(); pctx.arc(x+Math.cos(a)*d,y+Math.sin(a)*d,br,0,Math.PI*2); pctx.fill();
-  }
-  for(let i=0;i<5;i++){ const a=Math.random()*Math.PI*2,d=radius*rand(0.8,1.5);
-    pctx.beginPath(); pctx.arc(x+Math.cos(a)*d,y+Math.sin(a)*d,rand(1,2.5),0,Math.PI*2); pctx.fill(); }
+  inkBlob(pctx,x,y,team,radius*rand(0.92,1.08));
   const minx=clamp(((x-radius)/CELL)|0,0,GCOLS-1),maxx=clamp(((x+radius)/CELL)|0,0,GCOLS-1);
   const miny=clamp(((y-radius)/CELL)|0,0,GROWS-1),maxy=clamp(((y+radius)/CELL)|0,0,GROWS-1);
   for(let gy=miny;gy<=maxy;gy++) for(let gx=minx;gx<=maxx;gx++){
@@ -360,7 +414,17 @@ function fire(c,angle){
   p.x=c.x+Math.cos(angle)*muzzle; p.y=c.y+Math.sin(angle)*muzzle;
   const spd=300, spread=(Math.random()-0.5)*0.13;
   p.vx=Math.cos(angle+spread)*spd; p.vy=Math.sin(angle+spread)*spd;
-  p.team=c.team; p.life=0.42; p.active=true; projectiles.push(p); return true;
+  p.team=c.team; p.life=0.42; p.active=true; projectiles.push(p);
+  spawnMuzzleSpark(p.x,p.y,angle,c.team);
+  return true;
+}
+function spawnMuzzleSpark(x,y,angle,team){
+  const c=team===TEAM.ORANGE?COL.orangeInkHi:COL.tealInkHi;
+  const n=2+(Math.random()*2|0);
+  for(let i=0;i<n;i++){
+    const a=angle+(Math.random()-0.5)*0.7, s=rand(40,110);
+    particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:rand(0.08,0.16),max:0.16,c,r:rand(1.5,2.8)});
+  }
 }
 function killProjectile(p,splat){
   if(splat){ const r=rand(15,20); stampInk(p.x,p.y,p.team,r); spawnSplatParticles(p.x,p.y,p.team,6); }
@@ -496,48 +560,144 @@ function endMatch(){
 }
 
 // render
-function roundRect(x,y,w,h,r,fill){ ctx.fillStyle=fill; ctx.beginPath();
-  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
-  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); ctx.fill(); }
+function roundRect(x,y,w,h,r,fill){ block(ctx,x,y,w,h,fill); }
 function drawClawd(c){
   if(c.dead) return;
   const flash=c.invuln>0&&(Math.floor(c.invuln*16)%2===0);
-  const body=c.team===TEAM.ORANGE?COL.orange:COL.teal, dk=c.team===TEAM.ORANGE?COL.orangeDk:COL.tealDk;
-  ctx.save(); ctx.translate(Math.round(c.x),Math.round(c.y));
-  ctx.fillStyle='rgba(0,0,0,.28)'; ctx.beginPath(); ctx.ellipse(0,c.r-2,c.r+1,c.r*0.5,0,0,Math.PI*2); ctx.fill();
+  const body=c.team===TEAM.ORANGE?COL.orange:COL.teal;
+  const hi=c.team===TEAM.ORANGE?COL.orangeHi:COL.tealHi;
+  const dk=c.team===TEAM.ORANGE?COL.orangeDk:COL.tealDk;
+  const gunA=c.team===TEAM.ORANGE?COL.teal:COL.orange, gunB=c.team===TEAM.ORANGE?COL.tealDk:COL.orangeDk;
+  ctx.save(); ctx.translate(pix(c.x),pix(c.y));
+  drawPixelOvalShadow(0,c.r-1,31,9,0.38);
   if(flash) ctx.globalAlpha=0.45;
-  const lp=Math.sin(c.walk)*2; ctx.fillStyle=dk;
-  for(const sgn of [-1,1]) for(let i=0;i<3;i++){ const ly=-3+i*5, off=(i%2?lp:-lp)*sgn; ctx.fillRect(sgn*(c.r-2),ly+off,sgn*5,3); }
+  const lp=Math.sin(c.walk)*2;
+  // stubby side arms (drawn first so the cube body overlaps their inner edge)
+  const ab=Math.sin(c.walk)*1; // arm bob, opposite-ish to legs
+  // left arm
+  block(ctx,-22,-3-ab,8,9,COL.outline);
+  block(ctx,-21,-2-ab,6,7,body);
+  block(ctx,-21,3-ab,6,2,dk);
+  // right arm (stepped slightly lower, like the reference)
+  block(ctx,14,0+ab,8,9,COL.outline);
+  block(ctx,15,1+ab,6,7,body);
+  block(ctx,15,6+ab,6,2,dk);
+  block(ctx,19,1+ab,2,7,dk);
+  // four chunky cube feet
+  const legs=[[-11,8,-1],[-5,10,1],[5,10,-1],[11,8,1]];
+  for(const l of legs){
+    block(ctx,l[0]-3,l[1]-1+lp*l[2],8,11,COL.outline);
+    block(ctx,l[0]-2,l[1]+lp*l[2],6,9,dk);
+    block(ctx,l[0]-2,l[1]+lp*l[2],6,1,body); // lit top edge of foot
+  }
+  // slimmed forward weapon (rotates with aim, gameplay aim indicator)
   ctx.save(); ctx.rotate(c.aim);
-  ctx.fillStyle=c.team===TEAM.ORANGE?COL.tealDk:COL.orangeDk; ctx.fillRect(c.r-2,-2,11,4);
-  ctx.fillStyle=c.team===TEAM.ORANGE?COL.teal:COL.orange; ctx.fillRect(c.r+6,-2,4,4); ctx.restore();
-  roundRect(-c.r,-c.r,c.r*2,c.r*2,4,body);
-  ctx.fillStyle=dk; ctx.fillRect(-c.r,c.r-3,c.r*2,3);
-  ctx.fillStyle='#fff'; ctx.fillRect(-5,-4,4,5); ctx.fillRect(2,-4,4,5);
-  ctx.fillStyle='#2a1a10'; ctx.fillRect(-4,-1,2,2); ctx.fillRect(3,-1,2,2); ctx.fillRect(-3,5,7,2);
+  block(ctx,6,-5,18,9,COL.outline);
+  block(ctx,8,-3,13,5,gunB);
+  block(ctx,10,-3,8,2,gunA);
+  block(ctx,21,-3,6,5,COL.outline);
+  block(ctx,22,-2,4,3,gunA);
+  if(c.fireCd>0.05){
+    const mg=c.team===TEAM.ORANGE?COL.orangeInkHi:COL.tealInkHi;
+    block(ctx,27,-3,4,4,COL.outline);
+    block(ctx,28,-2,3,2,mg);
+    block(ctx,31,-1,2,1,mg);
+  }
+  ctx.restore();
+  // 3D cube body: outline backing, mid front face, lit top + dark right side
+  block(ctx,-17,-17,34,28,COL.outline);
+  block(ctx,-15,-15,30,24,body);
+  block(ctx,-12,-15,24,5,hi);      // lit top face (beveled inset)
+  block(ctx,11,-13,4,22,dk);       // dark right side face
+  block(ctx,-15,4,30,5,dk);        // bottom shade for grounding
+  block(ctx,12,-13,2,22,'rgba(0,0,0,.16)');
+  // two square black eyes, high and close together
+  block(ctx,-7,-9,5,5,COL.outline);
+  block(ctx,2,-9,5,5,COL.outline);
   if(c.human){ ctx.globalAlpha=1; ctx.fillStyle='#fff'; ctx.font='bold 8px "Courier New",monospace'; ctx.textAlign='center'; ctx.textBaseline='alphabetic';
-    ctx.fillText(c.control.toUpperCase(),0,-c.r-7); ctx.fillStyle=body; ctx.fillRect(-2,-c.r-5,4,3); }
+    ctx.fillText(c.control.toUpperCase(),0,-c.r-9); block(ctx,-2,-c.r-7,4,3,body); }
   ctx.restore();
 }
+// title-screen mascot: an orange 3D-cube Clawd standing on an orange splat.
+// Reuses block()/inkBlob() on a dedicated canvas so gameplay rendering is untouched.
+const titleArtCv=document.getElementById('title-art');
+const titleCtx=titleArtCv?titleArtCv.getContext('2d'):null;
+if(titleCtx) titleCtx.imageSmoothingEnabled=false;
+let titleSplatCv=null, titleRAF=0, titleT=0;
+function buildTitleSplat(w,h){
+  const c=document.createElement('canvas'); c.width=w; c.height=h;
+  const g=c.getContext('2d'); g.imageSmoothingEnabled=false;
+  const cx=w/2, cy=h*0.66;
+  inkBlob(g,cx,cy,TEAM.ORANGE,26);
+  inkBlob(g,cx-30,cy+4,TEAM.ORANGE,15);
+  inkBlob(g,cx+32,cy+2,TEAM.ORANGE,17);
+  inkBlob(g,cx-8,cy+16,TEAM.ORANGE,12);
+  titleSplatCv=c;
+}
+function drawTitleClawd(g,cx,cy,s,walk){
+  const body=COL.orange, hi=COL.orangeHi, dk=COL.orangeDk, gunA=COL.teal, gunB=COL.tealDk, ol=COL.outline;
+  g.save(); g.translate(cx,cy); g.scale(s,s);
+  g.save(); g.globalAlpha=0.3; g.fillStyle='#000';
+  g.beginPath(); g.ellipse(0,15,16,4.5,0,0,Math.PI*2); g.fill(); g.restore();
+  const bob=Math.sin(walk)*0.8; g.translate(0,bob);
+  const ab=Math.sin(walk)*1, lp=Math.sin(walk)*2;
+  block(g,-22,-3-ab,8,9,ol); block(g,-21,-2-ab,6,7,body); block(g,-21,3-ab,6,2,dk);
+  block(g,14,0+ab,8,9,ol); block(g,15,1+ab,6,7,body); block(g,15,6+ab,6,2,dk); block(g,19,1+ab,2,7,dk);
+  const legs=[[-11,8,-1],[-5,10,1],[5,10,-1],[11,8,1]];
+  for(const l of legs){ block(g,l[0]-3,l[1]-1+lp*l[2],8,11,ol); block(g,l[0]-2,l[1]+lp*l[2],6,9,dk); block(g,l[0]-2,l[1]+lp*l[2],6,1,body); }
+  block(g,6,-5,18,9,ol); block(g,8,-3,13,5,gunB); block(g,10,-3,8,2,gunA); block(g,21,-3,6,5,ol); block(g,22,-2,4,3,gunA);
+  block(g,-17,-17,34,28,ol); block(g,-15,-15,30,24,body); block(g,-12,-15,24,5,hi); block(g,11,-13,4,22,dk); block(g,-15,4,30,5,dk); block(g,12,-13,2,22,'rgba(0,0,0,.16)');
+  block(g,-7,-9,5,5,ol); block(g,2,-9,5,5,ol);
+  g.restore();
+}
+function drawTitleArt(){
+  if(!titleCtx) return;
+  const w=titleArtCv.width, h=titleArtCv.height;
+  if(!titleSplatCv) buildTitleSplat(w,h);
+  titleCtx.clearRect(0,0,w,h);
+  titleCtx.drawImage(titleSplatCv,0,0);
+  drawTitleClawd(titleCtx, w/2, h*0.46, 1.7, titleT);
+}
+function titleLoop(){ if(state!==STATE.TITLE){ titleRAF=0; return; } titleT+=0.05; drawTitleArt(); titleRAF=requestAnimationFrame(titleLoop); }
+function startTitleArt(){ if(!titleRAF) titleLoop(); }
 function drawObstacle(o){
-  if(o.kind==='barrel'){ roundRect(o.x,o.y,o.w,o.h,4,'#3a7a2e'); ctx.fillStyle='#2d5e24'; ctx.fillRect(o.x,o.y+o.h-5,o.w,5);
-    ctx.fillStyle='#56a83f'; ctx.fillRect(o.x+3,o.y+4,o.w-6,3); ctx.fillStyle='#1d3b17'; ctx.fillRect(o.x+o.w/2-4,o.y+o.h/2-4,8,8);
-  } else { roundRect(o.x,o.y,o.w,o.h,3,'#7a4fb0'); ctx.fillStyle='#5b3789'; ctx.fillRect(o.x,o.y+o.h-5,o.w,5);
-    ctx.fillStyle='#9166c9'; ctx.fillRect(o.x+3,o.y+3,o.w-6,3); ctx.strokeStyle='#4a2c70'; ctx.lineWidth=2; ctx.strokeRect(o.x+3,o.y+3,o.w-6,o.h-6); }
+  drawPixelOvalShadow(o.x+o.w/2,o.y+o.h-2,o.w+10,10,0.28);
+  if(o.kind==='barrel'){
+    isoBox(o.x,o.y,o.w,o.h,'#377c2d','#1f521d','#59ab42');
+    block(ctx,o.x+4,o.y+8,o.w-8,4,'#2c6925');
+    block(ctx,o.x+o.w/2-5,o.y+o.h/2-5,10,10,'#183915');
+    block(ctx,o.x+o.w/2-3,o.y+o.h/2-3,5,5,'#5ca94b');
+  } else {
+    isoBox(o.x,o.y,o.w,o.h,COL.purple,COL.purpleDk,COL.purpleHi);
+    strokeBlock(ctx,o.x+5,o.y+5,o.w-10,o.h-10,'#3e225e',3);
+    block(ctx,o.x+10,o.y+8,Math.max(10,o.w-22),4,'rgba(255,255,255,.18)');
+    block(ctx,o.x+o.w-14,o.y+4,5,o.h-9,'rgba(0,0,0,.2)');
+  }
 }
 function drawFloor(){
   ctx.fillStyle=COL.floor; ctx.fillRect(0,0,W,H);
-  ctx.fillStyle=COL.floorB; for(let y=0;y<H;y+=32) for(let x=0;x<W;x+=32) if(((x+y)/32)%2<1) ctx.fillRect(x,y,32,32);
-  ctx.save(); ctx.translate(W/2,H/2);
-  ctx.strokeStyle='rgba(255,255,255,.10)'; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(0,0,52,0,Math.PI*2); ctx.stroke();
-  roundRect(-16,-10,32,20,6,'rgba(255,255,255,.09)'); ctx.fillStyle='rgba(255,255,255,.09)'; ctx.fillRect(-26,-2,10,4); ctx.fillRect(16,-2,10,4);
-  ctx.fillStyle=COL.floor; ctx.fillRect(-8,-4,4,4); ctx.fillRect(4,-4,4,4); ctx.restore();
+  for(let y=FIELD.y;y<FIELD.y+FIELD.h;y+=24) for(let x=FIELD.x;x<FIELD.x+FIELD.w;x+=24){
+    block(ctx,x,y,22,22,((x+y)/24)%2<1?COL.floorB:COL.floor);
+    if(((x*7+y*3)|0)%5===0) block(ctx,x+5,y+6,3,2,COL.floorHi);
+    if(((x*11+y)|0)%7===0) block(ctx,x+15,y+15,4,2,'#232030');
+  }
+  const cx=W/2,cy=H/2;
+  strokeBlock(ctx,cx-36,cy-22,72,44,'rgba(230,225,222,.18)',3);
+  block(ctx,cx-16,cy-7,32,14,'rgba(230,225,222,.14)');
+  block(ctx,cx-26,cy-2,10,4,'rgba(230,225,222,.14)');
+  block(ctx,cx+16,cy-2,10,4,'rgba(230,225,222,.14)');
+  block(ctx,cx-8,cy-3,4,4,COL.floor);
+  block(ctx,cx+4,cy-3,4,4,COL.floor);
 }
 function drawWalls(){
-  ctx.fillStyle=COL.wall; ctx.fillRect(0,0,W,WALL); ctx.fillRect(0,H-WALL,W,WALL); ctx.fillRect(0,0,WALL,H); ctx.fillRect(W-WALL,0,WALL,H);
-  ctx.fillStyle=COL.wallTop; ctx.fillRect(0,WALL-3,W,3); ctx.fillRect(0,H-WALL,W,3); ctx.fillRect(WALL-3,0,3,H); ctx.fillRect(W-WALL,0,3,H);
-  ctx.fillStyle='#f5c518'; for(let x=0;x<70;x+=12) ctx.fillRect(x,H-WALL+2,7,WALL-4);
-  ctx.fillStyle='#1a1226'; for(let x=6;x<70;x+=12) ctx.fillRect(x,H-WALL+2,5,WALL-4);
+  block(ctx,0,0,W,WALL,COL.wall); block(ctx,0,H-WALL,W,WALL,COL.wall); block(ctx,0,0,WALL,H,COL.wall); block(ctx,W-WALL,0,WALL,H,COL.wall);
+  block(ctx,0,WALL-4,W,4,COL.wallTop); block(ctx,0,H-WALL,W,4,COL.wallTop); block(ctx,WALL-4,0,4,H,COL.wallTop); block(ctx,W-WALL,0,4,H,COL.wallTop);
+  block(ctx,20,0,118,13,COL.outline); block(ctx,23,2,112,9,COL.orange);
+  ctx.fillStyle='#fff'; ctx.font='bold 9px "Courier New",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('CLAWD',79,7);
+  block(ctx,W-136,0,118,13,COL.outline); block(ctx,W-133,2,112,9,COL.purpleDk);
+  ctx.fillStyle=COL.teal; ctx.fillText('TURF',W-77,7);
+  for(let x=0;x<92;x+=12){ block(ctx,x,H-WALL+2,7,WALL-4,COL.yellow); block(ctx,x+6,H-WALL+2,5,WALL-4,COL.outline); }
+  for(let x=W-100;x<W;x+=12){ block(ctx,x,H-WALL+2,7,WALL-4,COL.yellow); block(ctx,x+6,H-WALL+2,5,WALL-4,COL.outline); }
 }
 function drawInkTank(x,y,c,label){
   const iw=92,ih=9; ctx.textAlign='left'; ctx.textBaseline='alphabetic';
@@ -548,6 +708,18 @@ function drawInkTank(x,y,c,label){
   ctx.fillStyle='#000'; ctx.fillRect(x,y,iw,ih);
   const seg=7,gap=2,segs=Math.floor(iw/(seg+gap));
   for(let i=0;i<segs;i++){ const on=(i/segs)<(c.ink/c.inkMax); ctx.fillStyle=on?(full?'#ffd54a':base):'#2a1f3d'; ctx.fillRect(x+i*(seg+gap)+1,y+1,seg,ih-2); }
+}
+function drawCrabChip(x,y,team){
+  const body=team===TEAM.ORANGE?COL.orange:COL.teal;
+  const dk=team===TEAM.ORANGE?COL.orangeDk:COL.tealDk;
+  const hi=team===TEAM.ORANGE?COL.orangeHi:COL.tealHi;
+  block(ctx,x-1,y-1,12,11,COL.outline);
+  block(ctx,x,y,10,9,body);
+  block(ctx,x+1,y,8,2,hi);        // lit top face
+  block(ctx,x+8,y,2,9,dk);        // dark right side
+  block(ctx,x,y+7,10,2,dk);       // bottom shade
+  block(ctx,x+2,y+2,2,2,COL.outline); // square eyes
+  block(ctx,x+6,y+2,2,2,COL.outline);
 }
 function drawHUD(){
   ctx.textAlign='center'; ctx.textBaseline='middle';
@@ -560,8 +732,10 @@ function drawHUD(){
   ctx.fillStyle=COL.teal; ctx.fillRect(bx+bw-bw*tF,by,bw*tF,bh);
   ctx.fillStyle='rgba(255,255,255,.6)'; ctx.fillRect(bx+bw/2-1,by-2,2,bh+4);
   ctx.font='bold 12px "Courier New",monospace';
+  drawCrabChip(bx-54,by-2,TEAM.ORANGE);
   ctx.textAlign='right'; ctx.fillStyle=COL.orange; ctx.fillText(score.orange.toFixed(0)+'%',bx-6,by+bh/2);
-  ctx.textAlign='left';  ctx.fillStyle=COL.teal;   ctx.fillText(score.teal.toFixed(0)+'%',bx+bw+6,by+bh/2);
+  drawCrabChip(bx+bw+6,by-2,TEAM.TEAL);
+  ctx.textAlign='left';  ctx.fillStyle=COL.teal;   ctx.fillText(score.teal.toFixed(0)+'%',bx+bw+22,by+bh/2);
   roundRect(WALL+2,2,52,16,3,COL.orange); ctx.fillStyle='#1a1226'; ctx.font='bold 11px "Courier New",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('CLAWD',WALL+28,11);
   const humans=crabs.filter(c=>c.human);
   if(touchUsed && humans.length===1){ drawInkTank(W/2-46,H-22,humans[0],'INK'); }
@@ -586,12 +760,23 @@ function drawTouchControls(){
 function render(){
   ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,W,H);
   ctx.save(); if(shake>0) ctx.translate(rand(-shake,shake),rand(-shake,shake));
-  drawFloor(); ctx.drawImage(paint,0,0);
+  drawFloor(); ctx.globalAlpha=0.9; ctx.drawImage(paint,0,0); ctx.globalAlpha=1;
   const draws=[]; for(const o of obstacles) draws.push({y:o.y+o.h,fn:()=>drawObstacle(o)});
   for(const c of crabs) draws.push({y:c.y,fn:()=>drawClawd(c)});
   draws.sort((a,b)=>a.y-b.y); for(const d of draws) d.fn();
-  for(const p of projectiles){ ctx.fillStyle=p.team===TEAM.ORANGE?COL.orangeInk:COL.tealInk; ctx.beginPath(); ctx.arc(p.x,p.y,3.2,0,Math.PI*2); ctx.fill(); }
-  for(const pa of particles){ ctx.globalAlpha=clamp(pa.life/pa.max,0,1); ctx.fillStyle=pa.c; ctx.beginPath(); ctx.arc(pa.x,pa.y,pa.r,0,Math.PI*2); ctx.fill(); }
+  for(const p of projectiles){
+    const c=p.team===TEAM.ORANGE?COL.orangeInk:COL.tealInk;
+    const hi=p.team===TEAM.ORANGE?COL.orangeInkHi:COL.tealInkHi;
+    const m=Math.hypot(p.vx,p.vy)||1, tx=-p.vx/m, ty=-p.vy/m;
+    ctx.globalAlpha=0.4; block(ctx,p.x+tx*5-1,p.y+ty*5-1,3,3,c); ctx.globalAlpha=1;
+    block(ctx,p.x-4,p.y-3,8,6,COL.outline);
+    block(ctx,p.x-3,p.y-2,6,4,c);
+    block(ctx,p.x-1,p.y-1,2,2,hi);
+  }
+  for(const pa of particles){
+    ctx.globalAlpha=clamp(pa.life/pa.max,0,1);
+    ctx.fillStyle=pa.c; ctx.beginPath(); ctx.arc(pa.x,pa.y,Math.max(1,pa.r),0,Math.PI*2); ctx.fill();
+  }
   ctx.globalAlpha=1;
   drawWalls(); drawHUD(); drawTouchControls();
   ctx.restore();
@@ -611,7 +796,7 @@ const ov={ loading:el('loading-overlay'),title:el('title-overlay'),setup:el('set
 function hideAll(){ for(const k in ov) ov[k].classList.add('hidden'); }
 function setState(s){ state=s; hideAll();
   if(s===STATE.LOADING) ov.loading.classList.remove('hidden');
-  if(s===STATE.TITLE) ov.title.classList.remove('hidden');
+  if(s===STATE.TITLE){ ov.title.classList.remove('hidden'); startTitleArt(); }
   if(s===STATE.SETUP) ov.setup.classList.remove('hidden');
   if(s===STATE.PAUSED) ov.pause.classList.remove('hidden');
   if(s===STATE.OVER) ov.over.classList.remove('hidden');
