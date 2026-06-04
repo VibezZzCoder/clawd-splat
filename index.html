@@ -45,9 +45,10 @@
   #game-container.mode-portrait-touch{ flex-direction:column; align-items:center; justify-content:flex-start; gap:0; }
   #game-container.mode-portrait-touch canvas#game-canvas{ width:100%; height:auto; max-height:56vh; margin-top:2px; box-shadow:0 0 0 3px #000, 0 0 24px rgba(255,106,43,.22); }
   #game-container.mode-portrait-touch #touch-deck{
-    display:flex; flex:1 1 auto; width:100%; min-height:200px; position:relative;
+    display:flex; flex:1 1 auto; width:100%; min-height:210px; position:relative;
     align-items:stretch; justify-content:space-between; gap:8px;
-    padding:10px 12px max(10px,env(safe-area-inset-bottom)) 12px; box-sizing:border-box;
+    /* generous bottom inset so the thumb controls sit comfortably ABOVE the screen edge */
+    padding:10px 14px calc(max(18px,env(safe-area-inset-bottom)) + 30px) 14px; box-sizing:border-box;
   }
   /* Move stick (left thumb) */
   .deck-stick{ flex:0 0 auto; align-self:flex-end; display:flex; flex-direction:column; align-items:center; gap:6px; touch-action:none; }
@@ -102,6 +103,20 @@
   .deck-btn.held{ filter:brightness(1.25); transform:translateY(3px); }
   .deck-fire.held{ box-shadow:0 2px 0 #8f2f0e; }
   .deck-swim.held{ box-shadow:0 1px 0 #08555c; }
+  /* Corner pause button — desktop + landscape touch (hidden in portrait, which uses the deck pause) */
+  .hud-pause{
+    position:absolute; z-index:30; display:none; align-items:center; gap:7px;
+    top:max(10px,env(safe-area-inset-top)); right:max(12px,env(safe-area-inset-right));
+    padding:8px 12px; border:3px solid #5b3789; border-radius:10px;
+    background:rgba(28,19,48,.92); color:#cdbbe6; cursor:pointer;
+    font-family:inherit; font-weight:900; font-size:14px; line-height:1; letter-spacing:2px;
+    box-shadow:0 3px 0 #38215a, 0 4px 10px rgba(0,0,0,.45);
+  }
+  .hud-pause:hover{ background:rgba(40,27,66,.96); color:#fff; }
+  .hud-pause:active{ transform:translateY(2px); box-shadow:0 1px 0 #38215a; }
+  .hud-pause-key{ font-size:9px; letter-spacing:1px; color:#8a76a8; border:1px solid #5b3789; border-radius:4px; padding:2px 4px; }
+  #game-container.show-hud-pause .hud-pause{ display:flex; }
+  #game-container.mode-landscape-touch .hud-pause-key{ display:none; } /* no keyboard on touch */
   /* footer credits must never sit under the thumb controls during touch play */
   #game-container.mode-portrait-touch .legal-note,
   #game-container.mode-portrait-touch .credit,
@@ -232,6 +247,9 @@
       <button id="deck-fire" class="deck-btn deck-fire" type="button">FIRE</button>
     </div>
   </div>
+
+  <!-- Corner pause button for desktop + landscape (portrait uses the deck PAUSE) -->
+  <button id="hud-pause" class="hud-pause" type="button" aria-label="Pause">❚❚<span class="hud-pause-key">ESC</span></button>
 
   <div id="loading-overlay" class="game-overlay">
     <h1 class="game-logo">CL<span class="b">AW</span>D</h1>
@@ -419,10 +437,8 @@ const JOY={ r:46, knob:20 };
 const joy={ active:false, id:null, cx:0, cy:0, kx:0, ky:0, dx:0, dy:0 };
 const shootBtn={ cx:W-66, cy:H-66, r:44 };
 const swimBtn={ cx:W-162, cy:H-50, r:30 };
-const pauseBtn={ x:W-WALL-42, y:6, w:36, h:28 };
 const touchRoles={};
 let shootHeld=false, swimHeld=false;
-const inRect=(p,r)=>p.x>=r.x&&p.x<=r.x+r.w&&p.y>=r.y&&p.y<=r.y+r.h;
 const inCirc=(p,cx,cy,r)=>((p.x-cx)**2+(p.y-cy)**2)<=r*r;
 canvas.addEventListener('touchstart', onTouchStart, {passive:false});
 canvas.addEventListener('touchmove',  onTouchMove,  {passive:false});
@@ -433,7 +449,6 @@ function onTouchStart(e){
   if(state!==STATE.PLAYING || deckActive) return; // portrait uses the DOM deck instead of on-canvas controls
   for(const t of e.changedTouches){
     const p=canvasPos(t.clientX,t.clientY);
-    if(inRect(p,pauseBtn)){ togglePause(); touchRoles[t.identifier]='pause'; continue; }
     if(inCirc(p,shootBtn.cx,shootBtn.cy,shootBtn.r+8)){ touchRoles[t.identifier]='shoot'; shootHeld=true; continue; }
     if(inCirc(p,swimBtn.cx,swimBtn.cy,swimBtn.r+8)){ touchRoles[t.identifier]='swim'; swimHeld=true; continue; }
     if(p.x < W*0.55){
@@ -509,6 +524,8 @@ function bindHoldButton(btn,setter){
 bindHoldButton(deckFire,v=>shootHeld=v);
 bindHoldButton(deckSwim,v=>swimHeld=v);
 if(deckPause){ deckPause.addEventListener('click',e=>{ e.preventDefault(); togglePause(); }); }
+const hudPause=document.getElementById('hud-pause');
+if(hudPause){ hudPause.addEventListener('click',e=>{ e.preventDefault(); togglePause(); }); }
 
 /* ---- orientation/layout mode ---- */
 const deckScoreO=document.getElementById('deck-score-o'), deckScoreT=document.getElementById('deck-score-t');
@@ -531,6 +548,8 @@ function applyLayout(){
   deckActive=(next==='portrait-touch');
   if(deckEl) deckEl.setAttribute('aria-hidden', deckActive?'false':'true');
   if(wasDeck && !deckActive) resetTouch(); // leaving deck: drop any held inputs
+  // corner pause button: desktop + landscape touch (portrait uses the deck pause)
+  c.classList.toggle('show-hud-pause', state===STATE.PLAYING && !deckActive);
 }
 function updateDeckHUD(){
   if(!deckActive) return;
@@ -1635,17 +1654,21 @@ function drawTouchControls(){
     ctx.fillStyle='rgba(255,106,43,.72)'; ctx.beginPath(); ctx.arc(joy.kx,joy.ky,JOY.knob,0,Math.PI*2); ctx.fill();
     ctx.strokeStyle='rgba(255,208,172,.95)'; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(joy.kx,joy.ky,JOY.knob,0,Math.PI*2); ctx.stroke();
   } else {
-    const hx=WALL+JOY.r+12, hy=H-WALL-JOY.r-12;
-    ctx.strokeStyle='rgba(167,240,243,.16)'; ctx.lineWidth=2; ctx.setLineDash([4,5]); ctx.beginPath(); ctx.arc(hx,hy,JOY.r,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle='rgba(255,255,255,.3)'; ctx.font='bold 10px "Courier New",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('MOVE',hx,hy);
+    // No stick yet — the landscape joystick spawns wherever you touch the left side,
+    // so show a clear ghost stick + label (emphasized for the first few seconds) so new players know.
+    const hx=WALL+JOY.r+18, hy=H-WALL-JOY.r-20;
+    const elapsed = (config && timeLeft!=null) ? (config.duration - timeLeft) : 99;
+    const intro = elapsed < 6 && matchStartTimer<=0;
+    const ringA = intro ? 0.55 : 0.26, txtA = intro ? 0.95 : 0.5, knobA = intro ? 0.55 : 0.3;
+    ctx.fillStyle=`rgba(20,14,32,${intro?0.42:0.22})`; ctx.beginPath(); ctx.arc(hx,hy,JOY.r,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle=`rgba(167,240,243,${ringA})`; ctx.lineWidth=2.5; ctx.setLineDash([5,5]); ctx.beginPath(); ctx.arc(hx,hy,JOY.r,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle=`rgba(255,106,43,${knobA})`; ctx.beginPath(); ctx.arc(hx,hy,JOY.knob*0.8,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=`rgba(255,255,255,${txtA})`; ctx.font='bold 11px "Courier New",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('DRAG TO MOVE', hx, hy-JOY.r-9);
   }
   drawRoundBtn(shootBtn.cx,shootBtn.cy,shootBtn.r,'FIRE','255,106,43',shootHeld,15);
   drawRoundBtn(swimBtn.cx,swimBtn.cy,swimBtn.r,'SWIM','30,207,214',swimHeld,12);
-
-  // pause (top-right corner, away from aim zone)
-  roundRect(pauseBtn.x,pauseBtn.y,pauseBtn.w,pauseBtn.h,5,'rgba(10,6,17,.6)');
-  ctx.strokeStyle='rgba(167,240,243,.45)'; ctx.lineWidth=2; ctx.strokeRect(pauseBtn.x+1,pauseBtn.y+1,pauseBtn.w-2,pauseBtn.h-2);
-  ctx.fillStyle='#cdbbe6'; ctx.fillRect(pauseBtn.x+12,pauseBtn.y+8,5,pauseBtn.h-16); ctx.fillRect(pauseBtn.x+pauseBtn.w-17,pauseBtn.y+8,5,pauseBtn.h-16);
+  // (pause is now the DOM corner button #hud-pause — no on-canvas pause glyph)
 }
 function render(){
   ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,W,H);
@@ -1739,8 +1762,8 @@ function refreshSetup(){
   el('setup-hint').innerHTML = twoP
     ? 'P1 <b>WASD</b>+<b>Space</b> (swim <b>Shift</b>) &nbsp;•&nbsp; P2 <b>Arrows</b>+<b>/</b> (swim <b>Control</b>)'
     : (isTouchMode
-        ? 'Left <b>joystick</b> to move &nbsp;•&nbsp; <b>FIRE</b> &amp; <b>SWIM</b> buttons'
-        : '<b>WASD</b> move (swim <b>Shift</b>) &nbsp;•&nbsp; <b>Mouse</b> aim &nbsp;•&nbsp; <b>Click/Space</b> blast');
+        ? 'Left <b>stick</b> moves &nbsp;•&nbsp; <b>FIRE</b> auto-aims at foes &nbsp;•&nbsp; <b>SWIM</b> dives to refill<br><span style="opacity:.7">Landscape: drag anywhere on the left side to steer</span>'
+        : '<b>WASD</b> move (swim <b>Shift</b>) &nbsp;•&nbsp; <b>Mouse</b> aim &nbsp;•&nbsp; <b>Click/Space</b> blast &nbsp;•&nbsp; <b>Esc</b> pause');
 }
 el('opt-1p').onclick=()=>{ setupSel.players=1; refreshSetup(); };
 el('opt-2p').onclick=()=>{ if(allow2P){ setupSel.players=2; refreshSetup(); } };
@@ -1776,8 +1799,8 @@ function boot(){
   const bar=el('loading-bar'), statusEl=el('loading-status'); let prog=0;
   buildObstacles(); buildPaintable();
   el('title-controls').innerHTML = isTouchMode
-    ? 'Coat the floor in your color! Use the <b>Joystick</b> to move, <b>FIRE</b> to shoot, and <b>SWIM</b> to submerge for high-speed ink refills.'
-    : 'Out-paint your rivals before time hits zero! Swim with <b>Shift</b> to recharge ink and move faster. Splat foes to disrupt them.';
+    ? 'Coat the floor in your color! The left <b>stick</b> moves, <b>FIRE</b> auto-aims at the nearest foe, and <b>SWIM</b> submerges for high-speed ink refills.<br><span style="opacity:.7">Portrait shows a fixed stick; in landscape, drag anywhere on the left side to steer.</span>'
+    : 'Out-paint your rivals before time hits zero! <b>WASD</b> to move, <b>mouse</b> to aim, <b>click</b>/<b>Space</b> to blast, <b>Shift</b> to swim, <b>Esc</b> to pause. Splat foes to disrupt them.';
   renderTrophies();
   const steps=['CRACKING SHELLS…','MIXING INK…','TUNING BLASTERS…','READY!'];
   const tick=setInterval(()=>{
