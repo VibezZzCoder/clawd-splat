@@ -8,7 +8,12 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Clawd Splat">
+<meta name="theme-color" content="#0d0814">
 <title>CLAWD SPLAT — Turf War</title>
 <style>
   :root{
@@ -24,19 +29,89 @@
     -webkit-user-select:none; user-select:none; touch-action:none;
   }
   #game-container{
-    position:relative; width:100vw; height:100vh;
+    position:relative; width:100vw; height:100vh; height:100dvh;
     display:flex; align-items:center; justify-content:center;
     background:radial-gradient(circle at 50% 35%, #2a1840 0%, #0d0814 80%);
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    box-sizing:border-box;
   }
   canvas#game-canvas{
     display:block; image-rendering:pixelated; image-rendering:crisp-edges;
     background:#241634; max-width:100%; max-height:100%;
     box-shadow:0 0 0 4px #000, 0 0 40px rgba(255,106,43,.25);
   }
+  /* ---- Portrait touch layout: playfield up top, control deck below ---- */
+  #touch-deck{ display:none; }
+  #game-container.mode-portrait-touch{ flex-direction:column; align-items:center; justify-content:flex-start; gap:0; }
+  #game-container.mode-portrait-touch canvas#game-canvas{ width:100%; height:auto; max-height:56vh; margin-top:2px; box-shadow:0 0 0 3px #000, 0 0 24px rgba(255,106,43,.22); }
+  #game-container.mode-portrait-touch #touch-deck{
+    display:flex; flex:1 1 auto; width:100%; min-height:200px; position:relative;
+    align-items:stretch; justify-content:space-between; gap:8px;
+    padding:10px 12px max(10px,env(safe-area-inset-bottom)) 12px; box-sizing:border-box;
+  }
+  /* Move stick (left thumb) */
+  .deck-stick{ flex:0 0 auto; align-self:flex-end; display:flex; flex-direction:column; align-items:center; gap:6px; touch-action:none; }
+  .deck-stick-base{
+    position:relative; width:min(34vw,150px); height:min(34vw,150px); border-radius:50%;
+    background:radial-gradient(circle at 50% 38%, #2a1c40, #160e26);
+    border:4px solid #4a2e6b; box-shadow:inset 0 4px 14px rgba(0,0,0,.55), 0 4px 0 #1a1030;
+  }
+  .deck-stick-knob{
+    position:absolute; left:50%; top:50%; width:42%; height:42%; margin:-21% 0 0 -21%;
+    border-radius:50%; background:radial-gradient(circle at 50% 35%, #ff9a5e, var(--orange));
+    border:3px solid #ffd0ac; box-shadow:0 4px 8px rgba(0,0,0,.5);
+    transition:transform .04s linear;
+  }
+  .deck-stick.dragging .deck-stick-knob{ transition:none; }
+  .deck-cap{ font-size:11px; font-weight:900; letter-spacing:2px; color:#8a76a8; }
+  /* Info strip (center) */
+  #deck-info{ flex:1 1 auto; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; min-width:0; padding:0 4px; }
+  .deck-pause{
+    position:absolute; top:10px; right:12px; z-index:2;
+    width:50px; height:38px; border:3px solid #5b3789; border-radius:9px;
+    background:#1c1330; color:#cdbbe6; font-size:14px; line-height:1; letter-spacing:2px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; box-shadow:0 3px 0 #38215a;
+  }
+  .deck-pause:active{ transform:translateY(2px); box-shadow:0 1px 0 #38215a; }
+  .deck-score{ display:flex; align-items:center; gap:7px; width:100%; max-width:240px; font-family:"Courier New",monospace; font-weight:900; font-size:13px; }
+  .deck-score .ds-o{ color:var(--orange); } .deck-score .ds-t{ color:var(--teal); }
+  .deck-bar{ position:relative; flex:1 1 auto; height:9px; background:#000; border:1px solid #4a2e6b; border-radius:3px; overflow:hidden; display:flex; }
+  .deck-bar i{ display:block; height:100%; }
+  .deck-bar #deck-bar-o{ background:var(--orange); } .deck-bar #deck-bar-t{ background:var(--teal); margin-left:auto; }
+  .deck-time{ font-family:"Courier New",monospace; font-weight:900; font-size:20px; color:#fff; letter-spacing:1px; }
+  .deck-time.urgent{ color:#ff5a5a; }
+  .deck-hint{ font-size:10px; line-height:1.4; letter-spacing:.3px; color:#8a76a8; text-align:center; max-width:240px; }
+  .deck-hint b{ color:#cdbbe6; }
+  /* Action buttons (right thumb) */
+  #deck-actions{ flex:0 0 auto; position:relative; align-self:flex-end; width:min(40vw,168px); height:min(40vw,168px); }
+  .deck-btn{
+    position:absolute; border-radius:50%; font-family:inherit; font-weight:900; letter-spacing:1px;
+    color:#fff; border:4px solid; cursor:pointer; display:flex; align-items:center; justify-content:center;
+    text-shadow:0 2px 3px rgba(0,0,0,.6); touch-action:none; user-select:none;
+  }
+  .deck-fire{
+    right:0; bottom:0; width:62%; height:62%; font-size:clamp(15px,4.4vw,20px);
+    background:radial-gradient(circle at 50% 35%, #ff8a4e, #d9491a); border-color:#ffb98f;
+    box-shadow:0 5px 0 #8f2f0e, 0 8px 12px rgba(0,0,0,.5);
+  }
+  .deck-swim{
+    left:0; top:4%; width:48%; height:48%; font-size:clamp(11px,3.2vw,14px);
+    background:radial-gradient(circle at 50% 35%, #4be0e6, #0f8c93); border-color:#a7f0f3;
+    box-shadow:0 4px 0 #08555c, 0 7px 10px rgba(0,0,0,.5);
+  }
+  .deck-btn.held{ filter:brightness(1.25); transform:translateY(3px); }
+  .deck-fire.held{ box-shadow:0 2px 0 #8f2f0e; }
+  .deck-swim.held{ box-shadow:0 1px 0 #08555c; }
+  /* footer credits must never sit under the thumb controls during touch play */
+  #game-container.mode-portrait-touch .legal-note,
+  #game-container.mode-portrait-touch .credit,
+  #game-container.mode-landscape-touch .legal-note,
+  #game-container.mode-landscape-touch .credit{ display:none; }
   .game-overlay{
     position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     flex-direction:column; gap:12px; background:rgba(13,8,20,.84); backdrop-filter:blur(2px);
-    text-align:center; padding:20px; box-sizing:border-box;
+    text-align:center; box-sizing:border-box;
+    padding:max(20px,env(safe-area-inset-top)) max(20px,env(safe-area-inset-right)) max(20px,env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left));
   }
   .game-overlay.hidden{ display:none; }
   .game-logo{
@@ -81,20 +156,38 @@
   .opt.sel.plain{ background:#e7dcf7; border-color:#fff; }
   .opt .sub{ display:block; font-size:10px; font-weight:700; letter-spacing:0; opacity:.8; margin-top:2px; }
   
+  .setup-scroll-wrap{ position:relative; width:min(540px,96vw); display:flex; flex-direction:column; align-items:center; }
   .setup-scroll-container {
-    max-height: 56vh;
+    max-height: 58vh;
     overflow-y: auto;
     width: 100%;
     display: flex;
     flex-direction: column;
     gap: 6px;
     align-items: center;
-    padding: 4px 10px;
+    padding: 4px 10px 12px;
     box-sizing: border-box;
   }
-  .setup-scroll-container::-webkit-scrollbar { width: 4px; }
-  .setup-scroll-container::-webkit-scrollbar-thumb { background: #4a2e6b; border-radius: 4px; }
+  .setup-scroll-container::-webkit-scrollbar { width: 6px; }
+  .setup-scroll-container::-webkit-scrollbar-thumb { background: #6b4496; border-radius: 4px; }
+  .setup-scroll-container::-webkit-scrollbar-track { background: rgba(75,46,107,.25); }
+  /* "more below" affordance: fade + bouncing chevron, shown only while scrollable */
+  .scroll-cue{
+    position:absolute; left:0; right:0; bottom:0; height:50px; pointer-events:none;
+    display:flex; align-items:flex-end; justify-content:center; padding-bottom:3px;
+    background:linear-gradient(to bottom, rgba(13,8,20,0), rgba(13,8,20,.55) 55%, rgba(13,8,20,.92));
+    opacity:0; transition:opacity .2s; border-radius:0 0 12px 12px;
+  }
+  .scroll-cue.show{ opacity:1; }
+  .scroll-chevron{ color:var(--ink-text); font-size:22px; line-height:1; text-shadow:0 1px 4px #000; animation:scrollBounce 1.2s ease-in-out infinite; }
+  @keyframes scrollBounce{ 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(4px); } }
+  @media (max-height:560px){ .setup-scroll-container{ max-height:64vh; } }
 
+  /* Pause: primary RESUME up top, secondary actions spaced below so they're hard to fat-finger */
+  .pause-menu{ display:flex; gap:18px; margin-top:26px; flex-wrap:wrap; justify-content:center; }
+  .pause-secondary{ background:#3a2658; color:#e7dcf7; box-shadow:0 4px 0 #241640; }
+  .pause-secondary:active{ transform:translateY(3px); box-shadow:0 1px 0 #241640; }
+  #mainmenu-button{ background:#5b3789; }
   .result-title{ margin:0; font-size:clamp(30px,7vw,58px); font-weight:900; letter-spacing:2px; }
   .result-title.win{ color:var(--orange); text-shadow:3px 3px 0 var(--orange-dk); }
   .result-title.lose{ color:var(--teal); text-shadow:3px 3px 0 var(--teal-dk); }
@@ -118,6 +211,28 @@
 <div id="game-container">
   <canvas id="game-canvas" width="640" height="400"></canvas>
 
+  <!-- Portrait touch control deck (lives in the empty space BELOW the playfield) -->
+  <div id="touch-deck" aria-hidden="true">
+    <div id="deck-stick" class="deck-stick">
+      <div class="deck-stick-base"><div class="deck-stick-knob" id="deck-knob"></div></div>
+      <div class="deck-cap">MOVE</div>
+    </div>
+    <div id="deck-info">
+      <button id="deck-pause" class="deck-pause" type="button" aria-label="Pause">❚❚</button>
+      <div class="deck-score">
+        <span class="ds-o" id="deck-score-o">0%</span>
+        <div class="deck-bar"><i id="deck-bar-o"></i><i id="deck-bar-t"></i></div>
+        <span class="ds-t" id="deck-score-t">0%</span>
+      </div>
+      <div class="deck-time" id="deck-time">0:00</div>
+      <div class="deck-hint">Stick&nbsp;= move&nbsp;·&nbsp;<b>FIRE</b>&nbsp;= shoot&nbsp;·&nbsp;<b>SWIM</b>&nbsp;= dive &amp; refill</div>
+    </div>
+    <div id="deck-actions">
+      <button id="deck-swim" class="deck-btn deck-swim" type="button">SWIM</button>
+      <button id="deck-fire" class="deck-btn deck-fire" type="button">FIRE</button>
+    </div>
+  </div>
+
   <div id="loading-overlay" class="game-overlay">
     <h1 class="game-logo">CL<span class="b">AW</span>D</h1>
     <p class="loading-status" id="loading-status">INITIALIZING ARENA…</p>
@@ -125,7 +240,7 @@
   </div>
 
   <div id="title-overlay" class="game-overlay hidden">
-    <h1 class="game-logo">CL<span class="b">AW</span>D&nbsp;SPLAT</h1>
+    <h1 class="game-logo">CL<span class="b">AW</span>D&nbsp;SPL<span class="b">A</span>T</h1>
     <p class="tagline">▸ TURF&nbsp;WAR ◂</p>
     <canvas id="title-art" class="title-art" width="240" height="170" aria-hidden="true"></canvas>
     
@@ -143,7 +258,8 @@
   <div id="setup-overlay" class="game-overlay hidden">
     <h1 class="game-logo" style="font-size:clamp(28px,6vw,52px); margin: 0 0 -4px 0;">BATTLE SETUP</h1>
     
-    <div class="setup-scroll-container">
+    <div class="setup-scroll-wrap">
+    <div class="setup-scroll-container" id="setup-scroll">
       <div id="players-row">
         <p class="setup-h">PLAYERS</p>
         <div class="opt-row">
@@ -187,6 +303,8 @@
         <button class="opt plain" id="opt-time-120">120s<span class="sub">endurance</span></button>
       </div>
     </div>
+    <div class="scroll-cue" id="setup-scroll-cue" aria-hidden="true"><span class="scroll-chevron">▾</span></div>
+    </div>
 
     <p class="controls" id="setup-hint" style="margin:2px 0 0"></p>
     <div style="display:flex; gap:12px; margin-top:2px;">
@@ -198,7 +316,10 @@
   <div id="pause-overlay" class="game-overlay hidden">
     <h1 class="game-logo" style="font-size:clamp(30px,7vw,60px)">PAUSED</h1>
     <button class="btn teal" id="resume-button">RESUME</button>
-    <button class="btn small" id="quit-button" style="background:#5b3789;color:#fff;box-shadow:0 4px 0 #38215a">QUIT&nbsp;TO&nbsp;SETUP</button>
+    <div class="pause-menu">
+      <button class="btn small pause-secondary" id="restart-button">RESTART&nbsp;MATCH</button>
+      <button class="btn small pause-secondary" id="mainmenu-button">MAIN&nbsp;MENU</button>
+    </div>
   </div>
 
   <div id="over-overlay" class="game-overlay hidden">
@@ -263,7 +384,8 @@ let timeLeft, score, shake, lastWin;
 let p1ref=null, p2ref=null;
 let matchStartTimer=0, matchEndTimer=0, hitStopTimer=0;
 let leadTeam = TEAM.NONE;
-let matchBanners = [];
+let toast = null;        // single compact event callout near the score bar
+let leadToastCd = 0;     // cooldown so a see-saw lead doesn't spam callouts
 
 // metrics & persistent records
 let stats = { matches: 0, wins: 0, splats: 0, badges: [] };
@@ -308,7 +430,7 @@ canvas.addEventListener('touchend',   onTouchEnd,   {passive:false});
 canvas.addEventListener('touchcancel',onTouchEnd,   {passive:false});
 function onTouchStart(e){
   e.preventDefault(); touchUsed=true;
-  if(state!==STATE.PLAYING) return;
+  if(state!==STATE.PLAYING || deckActive) return; // portrait uses the DOM deck instead of on-canvas controls
   for(const t of e.changedTouches){
     const p=canvasPos(t.clientX,t.clientY);
     if(inRect(p,pauseBtn)){ togglePause(); touchRoles[t.identifier]='pause'; continue; }
@@ -342,7 +464,84 @@ function updateJoy(p){
   joy.kx=joy.cx+dx; joy.ky=joy.cy+dy;
   if(m<7){ joy.dx=0; joy.dy=0; } else { joy.dx=dx/JOY.r; joy.dy=dy/JOY.r; }
 }
-function resetTouch(){ joy.active=false; joy.id=null; joy.dx=0; joy.dy=0; shootHeld=false; swimHeld=false; for(const k in touchRoles) delete touchRoles[k]; }
+function resetTouch(){ joy.active=false; joy.id=null; joy.dx=0; joy.dy=0; shootHeld=false; swimHeld=false; for(const k in touchRoles) delete touchRoles[k]; if(typeof deckKnob!=='undefined'&&deckKnob) deckKnob.style.transform='translate(0,0)'; deckStick&&deckStick.classList.remove('dragging'); deckFire&&deckFire.classList.remove('held'); deckSwim&&deckSwim.classList.remove('held'); }
+
+/* ===================== Portrait DOM control deck =====================
+   Drives the SAME input state the gameplay reads (joy.dx/dy, shootHeld,
+   swimHeld). Pointer events + capture keep multitouch + slide-off clean. */
+let deckActive=false;
+const deckEl=document.getElementById('touch-deck');
+const deckStick=document.getElementById('deck-stick');
+const deckStickBase=deckStick&&deckStick.querySelector('.deck-stick-base');
+const deckKnob=document.getElementById('deck-knob');
+const deckFire=document.getElementById('deck-fire');
+const deckSwim=document.getElementById('deck-swim');
+const deckPause=document.getElementById('deck-pause');
+let deckStickPid=null;
+function deckStickMove(cx,cy){
+  if(!deckStickBase) return;
+  const b=deckStickBase.getBoundingClientRect();
+  const ox=b.left+b.width/2, oy=b.top+b.height/2, maxR=b.width/2;
+  let dx=cx-ox, dy=cy-oy; const m=Math.hypot(dx,dy);
+  if(m>maxR){ dx=dx/m*maxR; dy=dy/m*maxR; }
+  deckKnob.style.transform=`translate(${dx}px,${dy}px)`;
+  const dead=maxR*0.16;
+  if(m<dead){ joy.dx=0; joy.dy=0; } else { joy.dx=dx/maxR; joy.dy=dy/maxR; }
+}
+function deckStickEnd(){ deckStickPid=null; joy.active=false; joy.dx=0; joy.dy=0; if(deckKnob) deckKnob.style.transform='translate(0,0)'; deckStick&&deckStick.classList.remove('dragging'); }
+if(deckStick){
+  deckStick.addEventListener('pointerdown',e=>{ e.preventDefault(); touchUsed=true; deckStickPid=e.pointerId; joy.active=true; deckStick.classList.add('dragging'); try{deckStick.setPointerCapture(e.pointerId);}catch(_){} deckStickMove(e.clientX,e.clientY); });
+  deckStick.addEventListener('pointermove',e=>{ if(e.pointerId===deckStickPid) deckStickMove(e.clientX,e.clientY); });
+  const stEnd=e=>{ if(e.pointerId===deckStickPid) deckStickEnd(); };
+  deckStick.addEventListener('pointerup',stEnd);
+  deckStick.addEventListener('pointercancel',stEnd);
+  deckStick.addEventListener('lostpointercapture',stEnd);
+}
+function bindHoldButton(btn,setter){
+  if(!btn) return;
+  const on=e=>{ e.preventDefault(); touchUsed=true; setter(true); btn.classList.add('held'); try{btn.setPointerCapture(e.pointerId);}catch(_){} };
+  const off=e=>{ setter(false); btn.classList.remove('held'); };
+  btn.addEventListener('pointerdown',on);
+  btn.addEventListener('pointerup',off);
+  btn.addEventListener('pointercancel',off);
+  btn.addEventListener('lostpointercapture',off);
+}
+bindHoldButton(deckFire,v=>shootHeld=v);
+bindHoldButton(deckSwim,v=>swimHeld=v);
+if(deckPause){ deckPause.addEventListener('click',e=>{ e.preventDefault(); togglePause(); }); }
+
+/* ---- orientation/layout mode ---- */
+const deckScoreO=document.getElementById('deck-score-o'), deckScoreT=document.getElementById('deck-score-t');
+const deckBarO=document.getElementById('deck-bar-o'), deckBarT=document.getElementById('deck-bar-t');
+const deckTime=document.getElementById('deck-time');
+let layoutMode='menu';
+function computeLayout(){
+  const portrait = (window.innerHeight >= window.innerWidth);
+  const gameplay = (state===STATE.PLAYING||state===STATE.PAUSED||state===STATE.OVER);
+  if(isTouchMode && gameplay) return portrait ? 'portrait-touch' : 'landscape-touch';
+  return 'menu';
+}
+function applyLayout(){
+  const next=computeLayout();
+  layoutMode=next;
+  const c=document.getElementById('game-container');
+  c.classList.toggle('mode-portrait-touch', next==='portrait-touch');
+  c.classList.toggle('mode-landscape-touch', next==='landscape-touch');
+  const wasDeck=deckActive;
+  deckActive=(next==='portrait-touch');
+  if(deckEl) deckEl.setAttribute('aria-hidden', deckActive?'false':'true');
+  if(wasDeck && !deckActive) resetTouch(); // leaving deck: drop any held inputs
+}
+function updateDeckHUD(){
+  if(!deckActive) return;
+  if(deckScoreO) deckScoreO.textContent=Math.round(score.orange)+'%';
+  if(deckScoreT) deckScoreT.textContent=Math.round(score.teal)+'%';
+  if(deckBarO) deckBarO.style.width=(score.orange*0.5)+'%';
+  if(deckBarT) deckBarT.style.width=(score.teal*0.5)+'%';
+  if(deckTime){ const m=Math.floor(timeLeft/60),s=Math.floor(timeLeft%60); deckTime.textContent=`${m}:${s<10?'0':''}${s}`; deckTime.classList.toggle('urgent',timeLeft<15); }
+}
+addEventListener('resize', applyLayout);
+addEventListener('orientationchange', ()=>{ resetTouch(); applyLayout(); });
 
 // stats local storage loader
 function loadStats(){
@@ -415,9 +614,12 @@ function evaluateAchievements(){
   renderTrophies();
 }
 
-// floating announcements
-function addBanner(txt, col){
-  matchBanners.push({ text: txt, col: col || '#fff', life: 1.6, scale: 0.1 });
+// compact event callout — one at a time, higher priority wins, near the score bar
+function addBanner(txt, col, prio){
+  prio = prio || 0;
+  if(toast && toast.life > 0.2 && toast.prio > prio) return;       // don't stomp a fresher, bigger beat
+  if(toast && toast.text === txt){ toast.life = Math.max(toast.life, 1.1); return; } // refresh duplicate, don't restack
+  toast = { text: txt, col: col || '#fff', life: 1.3, max: 1.3, prio: prio, t: 0 };
 }
 
 // audio
@@ -660,7 +862,7 @@ function startMatch(){
   projectiles=[]; particles=[]; resetTouch();
   timeLeft=config.duration; score={orange:0,teal:0,splatsO:0,splatsT:0}; shake=0;
   matchStartTimer=3.0; matchEndTimer=0; hitStopTimer=0;
-  leadTeam = TEAM.NONE; matchBanners = [];
+  leadTeam = TEAM.NONE; toast = null; leadToastCd = 0;
   sessionGhostTime = 0; p1SplatCounter = 0; p1SplatTimer = 0;
   setState(STATE.PLAYING);
   sfx.start();
@@ -757,8 +959,8 @@ function splatCrab(c,byTeam){
   if(byTeam === config.p1team){
     p1SplatCounter++;
     p1SplatTimer = 3.5;
-    if(p1SplatCounter===2) addBanner("DOUBLE SPLAT!", COL.orangeHi);
-    if(p1SplatCounter>=3) addBanner("TRIPLE SPLAT!", COL.yellow);
+    if(p1SplatCounter===2) addBanner("DOUBLE SPLAT!", COL.orangeHi, 2);
+    if(p1SplatCounter>=3) addBanner("TRIPLE SPLAT!", COL.yellow, 3);
   }
   
   if(c.human) sfx.hurt(); else sfx.splatKill();
@@ -1088,27 +1290,30 @@ function update(dt){
     }
   }
   
-  // wipeout banners
+  // wipeout callout (condition can hold for several frames — addBanner de-dupes by text)
   if(orangeAlive===0 && crabs.some(c=>c.team===TEAM.ORANGE && c.dead)){
-    addBanner("ORANGE WIPED OUT!", COL.tealHi);
+    addBanner("ORANGE WIPED OUT!", COL.tealHi, 3);
   }
   if(tealAlive===0 && crabs.some(c=>c.team===TEAM.TEAL && c.dead)){
-    addBanner("TEAL WIPED OUT!", COL.orangeHi);
+    addBanner("TEAL WIPED OUT!", COL.orangeHi, 3);
   }
-  
-  // lead swaps banner
+
+  // lead swaps — track every flip, but only announce on a cooldown with a real margin (kills see-saw spam)
+  if(leadToastCd > 0) leadToastCd -= dt;
   const curLeader = score.orange > score.teal ? TEAM.ORANGE : (score.teal > score.orange ? TEAM.TEAL : TEAM.NONE);
   if(curLeader !== leadTeam && curLeader !== TEAM.NONE && lastScoreOrange > 0 && lastScoreTeal > 0){
     leadTeam = curLeader;
-    addBanner(leadTeam===TEAM.ORANGE ? "ORANGE TAKES THE LEAD!" : "TEAL TAKES THE LEAD!", leadTeam===TEAM.ORANGE ? COL.orangeHi : COL.tealHi);
+    if(leadToastCd <= 0 && Math.abs(score.orange - score.teal) >= 1){
+      addBanner(leadTeam===TEAM.ORANGE ? "ORANGE TAKES THE LEAD!" : "TEAL TAKES THE LEAD!", leadTeam===TEAM.ORANGE ? COL.orangeHi : COL.tealHi, 1);
+      leadToastCd = 6;
+    }
   }
-  
-  // Update floating match text banners
-  for(const b of matchBanners){
-    b.life -= dt;
-    if(b.scale < 1) b.scale += dt*10;
+
+  // advance the single active callout
+  if(toast){
+    toast.t += dt; toast.life -= dt;
+    if(toast.life <= 0) toast = null;
   }
-  matchBanners = matchBanners.filter(b => b.life > 0);
   
   for(const p of projectiles){
     if(!p.active) continue;
@@ -1390,15 +1595,21 @@ function drawHUD(){
     ctx.strokeText('SPLAT!',W/2,H/2); ctx.fillText('SPLAT!',W/2,H/2); ctx.restore();
   }
   
-  // Render floating game match alerts
-  let bannerY = H/2 - 45;
-  for(const b of matchBanners){
-    ctx.save(); ctx.translate(W/2, bannerY); ctx.scale(b.scale, b.scale);
-    ctx.font = '900 22px "Courier New",monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = COL.outline; ctx.fillText(b.text, 2, 2);
-    ctx.fillStyle = b.col; ctx.fillText(b.text, 0, 0);
-    ctx.restore();
-    bannerY += 25;
+  // Compact event toast, pinned just under the score bar so it never covers center gameplay
+  if(toast){
+    const appear = clamp(toast.t/0.14, 0, 1);
+    const fade = clamp(toast.life/0.3, 0, 1);
+    const a = Math.min(appear, fade);
+    const scale = 0.86 + 0.14*appear;
+    ctx.save();
+    ctx.translate(W/2, 52); ctx.scale(scale, scale); ctx.globalAlpha = a;
+    ctx.font = '900 15px "Courier New",monospace';
+    const tw = ctx.measureText(toast.text).width, pad = 11, ph = 22;
+    roundRect(-tw/2-pad, -ph/2, tw+pad*2, ph, 6, 'rgba(10,6,17,.74)');
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = COL.outline; ctx.fillText(toast.text, 1, 1.5);
+    ctx.fillStyle = toast.col;  ctx.fillText(toast.text, 0, 0.5);
+    ctx.restore(); ctx.globalAlpha = 1;
   }
   
   if(matchEndTimer>0){
@@ -1409,27 +1620,32 @@ function drawHUD(){
     ctx.strokeText("TIME!",0,0); ctx.fillText("TIME!",0,0); ctx.restore();
   }
 }
+function drawRoundBtn(cx,cy,r,label,rgb,held,fs){
+  ctx.fillStyle='rgba(10,6,17,.5)'; ctx.beginPath(); ctx.arc(cx,cy+3,r,0,Math.PI*2); ctx.fill(); // drop shadow
+  ctx.fillStyle=`rgba(${rgb},${held?0.85:0.5})`; ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,.7)'; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.stroke();
+  ctx.strokeStyle=`rgba(${rgb},.9)`; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(cx,cy,r-4,0,Math.PI*2); ctx.stroke();
+  ctx.fillStyle='#fff'; ctx.font=`bold ${fs}px "Courier New",monospace`; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(label,cx,cy);
+}
 function drawTouchControls(){
-  if(!touchUsed) return;
+  if(!touchUsed || deckActive) return; // portrait uses the DOM deck
   if(joy.active){
-    ctx.strokeStyle='rgba(255,255,255,.20)'; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(joy.cx,joy.cy,JOY.r,0,Math.PI*2); ctx.stroke();
-    ctx.fillStyle='rgba(255,106,43,.45)'; ctx.beginPath(); ctx.arc(joy.kx,joy.ky,JOY.knob,0,Math.PI*2); ctx.fill();
-    ctx.strokeStyle='rgba(255,255,255,.5)'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(joy.kx,joy.ky,JOY.knob,0,Math.PI*2); ctx.stroke();
+    ctx.fillStyle='rgba(20,14,32,.4)'; ctx.beginPath(); ctx.arc(joy.cx,joy.cy,JOY.r,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='rgba(167,240,243,.4)'; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(joy.cx,joy.cy,JOY.r,0,Math.PI*2); ctx.stroke();
+    ctx.fillStyle='rgba(255,106,43,.72)'; ctx.beginPath(); ctx.arc(joy.kx,joy.ky,JOY.knob,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='rgba(255,208,172,.95)'; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(joy.kx,joy.ky,JOY.knob,0,Math.PI*2); ctx.stroke();
   } else {
-    ctx.fillStyle='rgba(255,255,255,.16)'; ctx.font='bold 9px "Courier New",monospace'; ctx.textAlign='left'; ctx.textBaseline='alphabetic'; ctx.fillText('MOVE',WALL+8,H-WALL-20);
+    const hx=WALL+JOY.r+12, hy=H-WALL-JOY.r-12;
+    ctx.strokeStyle='rgba(167,240,243,.16)'; ctx.lineWidth=2; ctx.setLineDash([4,5]); ctx.beginPath(); ctx.arc(hx,hy,JOY.r,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle='rgba(255,255,255,.3)'; ctx.font='bold 10px "Courier New",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('MOVE',hx,hy);
   }
-  const sh=shootHeld?0.6:0.32;
-  ctx.fillStyle=`rgba(255,106,43,${sh})`; ctx.beginPath(); ctx.arc(shootBtn.cx,shootBtn.cy,shootBtn.r,0,Math.PI*2); ctx.fill();
-  ctx.strokeStyle='rgba(255,255,255,.5)'; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(shootBtn.cx,shootBtn.cy,shootBtn.r,0,Math.PI*2); ctx.stroke();
-  ctx.fillStyle='#fff'; ctx.font='bold 13px "Courier New",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('FIRE',shootBtn.cx,shootBtn.cy);
-  
-  const sw=swimHeld?0.6:0.32;
-  ctx.fillStyle=`rgba(30,207,214,${sw})`; ctx.beginPath(); ctx.arc(swimBtn.cx,swimBtn.cy,swimBtn.r,0,Math.PI*2); ctx.fill();
-  ctx.strokeStyle='rgba(255,255,255,.5)'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(swimBtn.cx,swimBtn.cy,swimBtn.r,0,Math.PI*2); ctx.stroke();
-  ctx.fillStyle='#fff'; ctx.font='bold 11px "Courier New",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('SWIM',swimBtn.cx,swimBtn.cy);
+  drawRoundBtn(shootBtn.cx,shootBtn.cy,shootBtn.r,'FIRE','255,106,43',shootHeld,15);
+  drawRoundBtn(swimBtn.cx,swimBtn.cy,swimBtn.r,'SWIM','30,207,214',swimHeld,12);
 
-  ctx.fillStyle='rgba(0,0,0,.5)'; roundRect(pauseBtn.x,pauseBtn.y,pauseBtn.w,pauseBtn.h,3,'rgba(0,0,0,.5)');
-  ctx.fillStyle='#fff'; ctx.fillRect(pauseBtn.x+11,pauseBtn.y+7,5,pauseBtn.h-14); ctx.fillRect(pauseBtn.x+pauseBtn.w-16,pauseBtn.y+7,5,pauseBtn.h-14);
+  // pause (top-right corner, away from aim zone)
+  roundRect(pauseBtn.x,pauseBtn.y,pauseBtn.w,pauseBtn.h,5,'rgba(10,6,17,.6)');
+  ctx.strokeStyle='rgba(167,240,243,.45)'; ctx.lineWidth=2; ctx.strokeRect(pauseBtn.x+1,pauseBtn.y+1,pauseBtn.w-2,pauseBtn.h-2);
+  ctx.fillStyle='#cdbbe6'; ctx.fillRect(pauseBtn.x+12,pauseBtn.y+8,5,pauseBtn.h-16); ctx.fillRect(pauseBtn.x+pauseBtn.w-17,pauseBtn.y+8,5,pauseBtn.h-16);
 }
 function render(){
   ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,W,H);
@@ -1456,11 +1672,14 @@ function render(){
 }
 
 // loop
-let last=0,acc=0; const STEP=1/60;
+let last=0,acc=0,deckHudTick=0; const STEP=1/60;
 function loop(ts){ requestAnimationFrame(loop);
   if(!last) last=ts; let dt=(ts-last)/1000; last=ts; if(dt>0.1) dt=0.1; acc+=dt;
   while(acc>=STEP){ update(STEP); acc-=STEP; }
-  if(state===STATE.PLAYING||state===STATE.PAUSED||state===STATE.OVER) render();
+  if(state===STATE.PLAYING||state===STATE.PAUSED||state===STATE.OVER){
+    render();
+    if(deckActive && (++deckHudTick & 7)===0) updateDeckHUD(); // ~7.5Hz, avoids per-frame DOM writes
+  }
 }
 
 // overlays / state
@@ -1473,6 +1692,7 @@ function setState(s){ state=s; hideAll();
   if(s===STATE.SETUP){ ov.setup.classList.remove('hidden'); stopMusic(); }
   if(s===STATE.PAUSED) ov.pause.classList.remove('hidden');
   if(s===STATE.OVER){ ov.over.classList.remove('hidden'); stopMusic(); }
+  applyLayout();
 }
 function togglePause(){ if(state===STATE.PLAYING){ resetTouch(); setState(STATE.PAUSED); } else if(state===STATE.PAUSED) setState(STATE.PLAYING); }
 
@@ -1481,7 +1701,16 @@ function openSetup(){
   el('players-row').style.display = allow2P ? '' : 'none';
   if(!allow2P) setupSel.players=1;
   refreshSetup(); setState(STATE.SETUP);
+  requestAnimationFrame(updateSetupScrollCue);
 }
+const setupScrollEl = el('setup-scroll'), setupScrollCue = el('setup-scroll-cue');
+function updateSetupScrollCue(){
+  if(!setupScrollEl || !setupScrollCue) return;
+  const more = setupScrollEl.scrollTop + setupScrollEl.clientHeight < setupScrollEl.scrollHeight - 4;
+  setupScrollCue.classList.toggle('show', more);
+}
+if(setupScrollEl){ setupScrollEl.addEventListener('scroll', updateSetupScrollCue, {passive:true}); }
+addEventListener('resize', updateSetupScrollCue);
 function refreshSetup(){
   el('opt-1p').classList.toggle('sel',setupSel.players===1);
   el('opt-2p').classList.toggle('sel',setupSel.players===2);
@@ -1537,7 +1766,8 @@ el('battle-button').onclick=()=>{ initAudio(); config.players=allow2P?setupSel.p
 el('setup-back').onclick=()=>setState(STATE.TITLE);
 el('start-button').onclick=()=>{ if(!assetsReady)return; initAudio(); openSetup(); };
 el('resume-button').onclick=()=>setState(STATE.PLAYING);
-el('quit-button').onclick=()=>openSetup();
+el('restart-button').onclick=()=>{ initAudio(); startMatch(); };
+el('mainmenu-button').onclick=()=>setState(STATE.TITLE);
 el('again-button').onclick=()=>{ initAudio(); startMatch(); };
 el('change-button').onclick=()=>openSetup();
 
