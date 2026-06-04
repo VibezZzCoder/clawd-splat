@@ -40,6 +40,17 @@
     background:#241634; max-width:100%; max-height:100%;
     box-shadow:0 0 0 4px #000, 0 0 40px rgba(255,106,43,.25);
   }
+  /* ---- Desktop only: scale the playfield up to fill the empty space ----
+     Keeps the 640x400 (16:10) internal resolution; CSS just upscales the
+     pixel-art canvas to the largest box that fits the viewport. Touch
+     layouts (portrait/landscape) are unaffected — they never get .desktop. */
+  #game-container.desktop canvas#game-canvas{
+    width:min(96vw, calc((100vh - 44px) * 1.6));
+    height:auto; max-width:96vw; max-height:calc(100vh - 44px);
+  }
+  /* Hide the OS pointer over the play area during a desktop match; a
+     stylized in-canvas reticle is drawn instead (see drawCursor). */
+  #game-container.desktop.show-hud-pause canvas#game-canvas{ cursor:none; }
   /* ---- Portrait touch layout: playfield up top, control deck below ---- */
   #touch-deck{ display:none; }
   #game-container.mode-portrait-touch{ flex-direction:column; align-items:center; justify-content:flex-start; gap:0; }
@@ -385,6 +396,9 @@ const isTouchCapable = ('ontouchstart' in window) || (navigator.maxTouchPoints>0
 const isTouchMode = isTouchCapable && !hasFinePointer;
 const allow2P = hasFinePointer;
 let touchUsed = isTouchMode;
+// Desktop (fine pointer, not touch): upscale the playfield + use the custom reticle.
+const isDesktop = hasFinePointer && !isTouchMode;
+if(isDesktop){ const gc=document.getElementById('game-container'); if(gc) gc.classList.add('desktop'); }
 
 // canvas
 const canvas=document.getElementById('game-canvas');
@@ -426,9 +440,11 @@ addEventListener('keydown', e=>{
 addEventListener('keyup', e=>{ keys[e.key.toLowerCase()]=false; });
 
 // mouse
-const mouse={ x:W/2, y:H/2, down:false };
+const mouse={ x:W/2, y:H/2, down:false, inside:false };
 function canvasPos(cx,cy){ const r=canvas.getBoundingClientRect(); return { x:(cx-r.left)/r.width*W, y:(cy-r.top)/r.height*H }; }
-canvas.addEventListener('mousemove', e=>{ const p=canvasPos(e.clientX,e.clientY); mouse.x=p.x; mouse.y=p.y; });
+canvas.addEventListener('mousemove', e=>{ const p=canvasPos(e.clientX,e.clientY); mouse.x=p.x; mouse.y=p.y; mouse.inside=true; });
+canvas.addEventListener('mouseenter', e=>{ mouse.inside=true; });
+canvas.addEventListener('mouseleave', e=>{ mouse.inside=false; });
 canvas.addEventListener('mousedown', e=>{ if(e.button===0) mouse.down=true; });
 addEventListener('mouseup', e=>{ if(e.button===0) mouse.down=false; });
 
@@ -1692,6 +1708,40 @@ function render(){
   ctx.globalAlpha=1;
   drawWalls(); drawHUD(); drawTouchControls();
   ctx.restore();
+  drawCursor();
+}
+
+// Stylized in-canvas aiming reticle for desktop play (replaces the OS pointer).
+// Team-colored, drawn in screen space so it stays steady through screen shake.
+let cursorT=0;
+function drawCursor(){
+  if(!isDesktop || state!==STATE.PLAYING || !mouse.inside) return;
+  cursorT+=0.12;
+  const p1=crabs.find(c=>c.control==='p1');
+  const orange=!p1||p1.team===TEAM.ORANGE;
+  const main=orange?COL.orange:COL.teal, hi=orange?COL.orangeHi:COL.tealHi;
+  const x=Math.round(mouse.x), y=Math.round(mouse.y);
+  const pulse=Math.sin(cursorT)*1.2, R=9+pulse, gap=4, len=4;
+  ctx.save();
+  // outline pass — thick dark backing for contrast over busy paint
+  ctx.strokeStyle=COL.outline; ctx.lineWidth=4; ctx.lineCap='butt';
+  ctx.beginPath(); ctx.arc(x,y,R,0,Math.PI*2); ctx.stroke();
+  tick(ctx,x,y,R,gap,len);
+  // colored pass
+  ctx.strokeStyle=main; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.arc(x,y,R,0,Math.PI*2); ctx.stroke();
+  tick(ctx,x,y,R,gap,len);
+  // center dot
+  block(ctx,x-2,y-2,4,4,COL.outline); block(ctx,x-1,y-1,2,2,hi);
+  ctx.restore();
+}
+function tick(g,x,y,R,gap,len){
+  g.beginPath();
+  g.moveTo(x,y-R+gap); g.lineTo(x,y-R-len);   // up
+  g.moveTo(x,y+R-gap); g.lineTo(x,y+R+len);   // down
+  g.moveTo(x-R+gap,y); g.lineTo(x-R-len,y);   // left
+  g.moveTo(x+R-gap,y); g.lineTo(x+R+len,y);   // right
+  g.stroke();
 }
 
 // loop
