@@ -377,6 +377,11 @@ const AI_STATE={ INKING:0, COMBAT:1, RECHARGE:2 };
 const COL={
   orange:'#ff6b2a', orangeHi:'#ffb072', orangeDk:'#b83a13', orangeInk:'#e8602a', orangeInkDk:'#bd4517', orangeInkHi:'#f59a5a',
   teal:'#22c9d0',   tealHi:'#86f4f8',   tealDk:'#0b7f89',   tealInk:'#23b3bd',   tealInkDk:'#107883',   tealInkHi:'#74dde4',
+  // Clawd body tints (flat pixel-art style — references/Clawd IDLE.jpeg + Clawd TURNING.jpeg).
+  // Orange team = exact reference terracotta; teal team = muted teal matched in sat/lightness.
+  orangeBody:'#cb7c5e', orangeBodyHi:'#d68a6c', orangeBodyDk:'#b56e51',
+  tealBody:'#5eb5b2',   tealBodyHi:'#74c4c0',   tealBodyDk:'#4d9e9a',
+  eye:'#171011',
   floor:'#2a2733',  floorB:'#2f2c3a',   floorHi:'#3b3746',
   wall:'#15101f',   wallTop:'#271b3b',  outline:'#090611',
   purple:'#7b4db2', purpleHi:'#a078d8', purpleDk:'#4d2b72',
@@ -1396,90 +1401,115 @@ function endMatch(){
 
 // render
 function roundRect(x,y,w,h,r,fill){ block(ctx,x,y,w,h,fill); }
+// Shared flat pixel-art Clawd sprite (visual target: references/Clawd IDLE.jpeg +
+// references/Clawd TURNING.jpeg). Flat team-tinted body, NO outline, high-set black
+// square eyes that slide toward the facing direction, flat side claw nubs, and four
+// body-colored legs hanging from a notched bottom edge.
+// o: {body,hi,dk, aim, walk, amp (0=idle planted, 1=full scuttle), breath (px bob)}
+function drawClawdSprite(g,o){
+  const fx=Math.cos(o.aim||0), fy=Math.sin(o.aim||0);
+  const amp=o.amp===undefined?1:o.amp, walk=o.walk||0, bob=o.breath||0;
+  // legs first (body welds over their tops): [x, w, gait phase] — diagonal pairs
+  const legs=[[-15,5,0],[-6,4,Math.PI],[2,4,0],[10,5,Math.PI]];
+  for(const l of legs){
+    const lift=Math.max(0,Math.sin(walk+l[2]))*3*amp;
+    block(g,l[0],7,l[1],9-lift,o.body);
+  }
+  // flat claw nubs by silhouette, right one stepped slightly lower (ref asymmetry)
+  const ab=Math.sin(walk)*amp;
+  block(g,-21,-6-ab,6,7,o.body);
+  block(g,15,-5+ab,6,7,o.body);
+  // body slab
+  block(g,-15,-15+bob,30,24,o.body);
+  // very subtle two-tone accents (turning ref): faint lit patch upper-left,
+  // faint trailing-edge strip on the side away from facing
+  block(g,-15,-15+bob,7,4,o.hi);
+  if(fx>0.15) block(g,-15,-15+bob,2,24,o.dk);
+  else if(fx<-0.15) block(g,13,-15+bob,2,24,o.dk);
+  // eyes: high-set black squares, sliding toward facing
+  const ex=Math.round(fx*3), ey=Math.round(fy*1.5);
+  block(g,-9+ex,-12+ey+bob,4,4,COL.eye);
+  block(g,5+ex,-12+ey+bob,4,4,COL.eye);
+}
+// Shared flat weapon sprites, drawn in an aim-rotated frame (+x = forward).
+// Two-tone in the opposing team's ink colors + thin dark edges; no heavy outline.
+function drawWeaponSprite(g,weapon,gunA,gunB,o){
+  const edge='rgba(0,0,0,.22)';
+  if(weapon==='charger'){
+    block(g,6,-3,21,6,gunB); block(g,8,-2,17,1,gunA);
+    block(g,6,2,21,1,edge);
+    block(g,12,-7,6,4,gunB); block(g,14,-6,2,2,gunA);
+    block(g,27,-2,4,4,gunA);
+  } else if(weapon==='spreader'){
+    block(g,6,-6,13,12,gunB); block(g,6,-6,13,3,gunA);
+    block(g,6,5,13,1,edge);
+    block(g,19,-5,4,4,gunA); block(g,19,1,4,4,gunA);
+  } else if(weapon==='roller'){
+    const glow=o&&o.rollGlow;
+    block(g,6,-2,7,4,gunB); block(g,6,1,7,1,edge);
+    block(g,12,-7,2,14,gunB);
+    block(g,14,-12,7,24,glow?o.ink:gunB);
+    if(glow) block(g,16,-10,2,20,o.inkHi); else block(g,19,-12,2,24,edge);
+  } else {
+    block(g,6,-4,17,8,gunB); block(g,8,-2,11,2,gunA);
+    block(g,6,3,17,1,edge);
+    block(g,23,-3,5,6,gunA);
+  }
+}
 function drawClawd(c){
   if(c.dead) return;
   const flash=c.invuln>0&&(Math.floor(c.invuln*16)%2===0);
-  const body=c.team===TEAM.ORANGE?COL.orange:COL.teal;
-  const hi=c.team===TEAM.ORANGE?COL.orangeHi:COL.tealHi;
-  const dk=c.team===TEAM.ORANGE?COL.orangeDk:COL.tealDk;
+  const body=c.team===TEAM.ORANGE?COL.orangeBody:COL.tealBody;
+  const hi=c.team===TEAM.ORANGE?COL.orangeBodyHi:COL.tealBodyHi;
+  const dk=c.team===TEAM.ORANGE?COL.orangeBodyDk:COL.tealBodyDk;
+  const inkHi=c.team===TEAM.ORANGE?COL.orangeInkHi:COL.tealInkHi;
   const gunA=c.team===TEAM.ORANGE?COL.teal:COL.orange, gunB=c.team===TEAM.ORANGE?COL.tealDk:COL.orangeDk;
-  
+
   ctx.save(); ctx.translate(pix(c.x),pix(c.y));
-  
+
   if(c.swimming){
     ctx.save(); if(flash) ctx.globalAlpha=0.45;
-    ctx.fillStyle = c.team===TEAM.ORANGE?COL.orangeInkHi:COL.tealInkHi;
+    ctx.fillStyle = inkHi;
     ctx.beginPath(); ctx.ellipse(0,0,15+Math.sin(c.walk)*2,11+Math.cos(c.walk)*1.5,0,0,Math.PI*2); ctx.fill();
     ctx.fillStyle=body;
     ctx.beginPath(); ctx.ellipse(0,0,11+Math.sin(c.walk)*1.5,8+Math.cos(c.walk)*1,0,0,Math.PI*2); ctx.fill();
-    block(ctx,-5,-4,4,4,COL.outline); block(ctx,1,-4,4,4,COL.outline);
+    block(ctx,-5,-4,4,4,COL.eye); block(ctx,1,-4,4,4,COL.eye);
     if(Math.random()<0.25){
       particles.push({x:c.x+rand(-10,10),y:c.y+rand(-8,8),vx:rand(-20,20),vy:rand(-20,20),life:rand(0.15,0.35),max:0.35,c:body,r:rand(1,2)});
     }
     ctx.restore(); ctx.restore(); return;
   }
-  
+
   drawPixelOvalShadow(0,c.r-1,31,9,0.38);
   if(flash) ctx.globalAlpha=0.45;
-  const lp=Math.sin(c.walk)*2;
-  
+
+  // visual-only scuttle amplitude: eases in while walking, eases out to the
+  // planted idle stance (c.walk only advances while moving)
+  if(c._walkSeen===undefined){ c._walkSeen=c.walk; c._amp=0; }
+  const movingNow=c.walk!==c._walkSeen; c._walkSeen=c.walk;
+  c._amp+=((movingNow?1:0)-c._amp)*0.18;
+  const breath=Math.sin(performance.now()*0.003)*0.7*(1-c._amp);
+
   // full tank sparkling aura
   if(c.ink>=c.inkMax && c.weapon!=='roller'){
-    ctx.save(); ctx.strokeStyle=hi; ctx.lineWidth=1.5;
+    ctx.save(); ctx.strokeStyle=inkHi; ctx.lineWidth=1.5;
     ctx.beginPath(); ctx.arc(0,-5,18+Math.sin(c.walk*3)*2,0,Math.PI*2); ctx.stroke();
     if(Math.random()<0.15){
-      particles.push({x:c.x+rand(-16,16),y:c.y+rand(-20,10),vx:rand(-10,10),vy:rand(-30,-10),life:rand(0.2,0.4),max:0.4,c:hi,r:rand(1,2)});
+      particles.push({x:c.x+rand(-16,16),y:c.y+rand(-20,10),vx:rand(-10,10),vy:rand(-30,-10),life:rand(0.2,0.4),max:0.4,c:inkHi,r:rand(1,2)});
     }
     ctx.restore();
   }
-  
-  const ab=Math.sin(c.walk)*1;
-  block(ctx,-22,-3-ab,8,9,COL.outline); block(ctx,-21,-2-ab,6,7,body); block(ctx,-21,3-ab,6,2,dk);
-  block(ctx,14,0+ab,8,9,COL.outline); block(ctx,15,1+ab,6,7,body); block(ctx,15,6+ab,6,2,dk); block(ctx,19,1+ab,2,7,dk);
-  
-  const legs=[[-11,8,-1],[-5,10,1],[5,10,-1],[11,8,1]];
-  for(const l of legs){
-    block(ctx,l[0]-3,l[1]-1+lp*l[2],8,11,COL.outline); block(ctx,l[0]-2,l[1]+lp*l[2],6,9,dk); block(ctx,l[0]-2,l[1]+lp*l[2],6,1,body);
-  }
-  
+
   ctx.save(); ctx.rotate(c.aim);
-  // Weapon barrel drawings based on loadout profile
-  if(c.weapon === 'charger') {
-    block(ctx, 6, -3, 24, 6, COL.outline);
-    block(ctx, 8, -2, 20, 4, gunB);
-    block(ctx, 12, -4, 4, 3, COL.outline);
-    block(ctx, 13, -3, 2, 1, gunA);
-    block(ctx, 26, -2, 4, 4, COL.outline);
-    block(ctx, 27, -1, 2, 2, gunA);
-  } else if(c.weapon === 'spreader') {
-    block(ctx, 6, -6, 14, 12, COL.outline);
-    block(ctx, 8, -5, 10, 4, gunB);
-    block(ctx, 8, 1, 10, 4, gunB);
-    block(ctx, 18, -4, 3, 3, gunA);
-    block(ctx, 18, 1, 3, 3, gunA);
-  } else if(c.weapon === 'roller') {
-    const rollGlow = c.ink > 0 && c.rolling;
-    block(ctx, 6, -2, 6, 4, COL.outline);
-    block(ctx, 12, -8, 2, 16, COL.outline);
-    block(ctx, 14, -12, 6, 24, rollGlow ? body : COL.outline);
-    if(rollGlow) block(ctx, 16, -10, 2, 20, hi);
-  } else {
-    block(ctx, 6, -5, 18, 9, COL.outline);
-    block(ctx, 8, -3, 13, 5, gunB);
-    block(ctx, 10,-3, 8, 2, gunA);
-    block(ctx, 21, -3, 6, 5, COL.outline);
-    block(ctx, 22, -2, 4, 3, gunA);
-  }
-  
+  drawWeaponSprite(ctx,c.weapon,gunA,gunB,{rollGlow:c.weapon==='roller'&&c.ink>0&&c.rolling,
+    ink:c.team===TEAM.ORANGE?COL.orangeInk:COL.tealInk, inkHi});
   if(c.fireCd>0.05 && c.weapon!=='roller'){
-    const mg=c.team===TEAM.ORANGE?COL.orangeInkHi:COL.tealInkHi;
-    const lenProfile = c.weapon==='charger'?31:(c.weapon==='spreader'?21:27);
-    block(ctx,lenProfile,-3,4,4,COL.outline); block(ctx,lenProfile+1,-2,3,2,mg); block(ctx,lenProfile+4,-1,2,1,mg);
+    const lenProfile = c.weapon==='charger'?31:(c.weapon==='spreader'?23:28);
+    block(ctx,lenProfile,-2,4,4,inkHi); block(ctx,lenProfile+4,-1,2,2,inkHi);
   }
   ctx.restore();
-  
-  block(ctx,-17,-17,34,28,COL.outline); block(ctx,-15,-15,30,24,body); block(ctx,-12,-15,24,5,hi); block(ctx,11,-13,4,22,dk); block(ctx,-15,4,30,5,dk); block(ctx,12,-13,2,22,'rgba(0,0,0,.16)');
-  block(ctx,-7,-9,5,5,COL.outline); block(ctx,2,-9,5,5,COL.outline);
+
+  drawClawdSprite(ctx,{body,hi,dk,aim:c.aim,walk:c.walk,amp:c._amp,breath});
   if(c.human){
     ctx.globalAlpha=1; ctx.fillStyle='#fff'; ctx.font='bold 8px "Courier New",monospace'; ctx.textAlign='center'; ctx.textBaseline='alphabetic';
     ctx.fillText(c.control.toUpperCase(),0,-c.r-9); block(ctx,-2,-c.r-7,4,3,body);
@@ -1500,18 +1530,12 @@ function buildTitleSplat(w,h){
   titleSplatCv=c;
 }
 function drawTitleClawd(g,cx,cy,s,walk){
-  const body=COL.orange, hi=COL.orangeHi, dk=COL.orangeDk, gunA=COL.teal, gunB=COL.tealDk, ol=COL.outline;
   g.save(); g.translate(cx,cy); g.scale(s,s);
   g.save(); g.globalAlpha=0.3; g.fillStyle='#000'; g.beginPath(); g.ellipse(0,15,16,4.5,0,0,Math.PI*2); g.fill(); g.restore();
   const bob=Math.sin(walk)*0.8; g.translate(0,bob);
-  const ab=Math.sin(walk)*1, lp=Math.sin(walk)*2;
-  block(g,-22,-3-ab,8,9,ol); block(g,-21,-2-ab,6,7,body); block(g,-21,3-ab,6,2,dk);
-  block(g,14,0+ab,8,9,ol); block(g,15,1+ab,6,7,body); block(g,15,6+ab,6,2,dk); block(g,19,1+ab,2,7,dk);
-  const legs=[[-11,8,-1],[-5,10,1],[5,10,-1],[11,8,1]];
-  for(const l of legs){ block(g,l[0]-3,l[1]-1+lp*l[2],8,11,ol); block(g,l[0]-2,l[1]+lp*l[2],6,9,dk); block(g,l[0]-2,l[1]+lp*l[2],6,1,body); }
-  block(g,6,-5,18,9,ol); block(g,8,-3,13,5,gunB); block(g,10,-3,8,2,gunA); block(g,21,-3,6,5,ol); block(g,22,-2,4,3,gunA);
-  block(g,-17,-17,34,28,ol); block(g,-15,-15,30,24,body); block(g,-12,-15,24,5,hi); block(g,11,-13,4,22,dk); block(g,-15,4,30,5,dk); block(g,12,-13,2,22,'rgba(0,0,0,.16)');
-  block(g,-7,-9,5,5,ol); block(g,2,-9,5,5,ol); g.restore();
+  drawWeaponSprite(g,'blaster',COL.teal,COL.tealDk);
+  drawClawdSprite(g,{body:COL.orangeBody,hi:COL.orangeBodyHi,dk:COL.orangeBodyDk,aim:0,walk,amp:1,breath:0});
+  g.restore();
 }
 function drawTitleArt(){
   if(!titleCtx) return; const w=titleArtCv.width, h=titleArtCv.height;
@@ -1585,11 +1609,12 @@ function drawInkTank(x,y,c,label){
   for(let i=0;i<segs;i++){ const on=(i/segs)<(c.ink/c.inkMax); ctx.fillStyle=on?(full?'#ffd54a':base):'#2a1f3d'; ctx.fillRect(x+i*(seg+gap)+1,y+1,seg,ih-2); }
 }
 function drawCrabChip(x,y,team){
-  const body=team===TEAM.ORANGE?COL.orange:COL.teal;
-  const dk=team===TEAM.ORANGE?COL.orangeDk:COL.tealDk;
-  const hi=team===TEAM.ORANGE?COL.orangeHi:COL.tealHi;
-  block(ctx,x-1,y-1,12,11,COL.outline); block(ctx,x,y,10,9,body); block(ctx,x+1,y,8,2,hi); block(ctx,x+8,y,2,9,dk); block(ctx,x,y+7,10,2,dk);
-  block(ctx,x+2,y+2,2,2,COL.outline); block(ctx,x+6,y+2,2,2,COL.outline);
+  const body=team===TEAM.ORANGE?COL.orangeBody:COL.tealBody;
+  const hi=team===TEAM.ORANGE?COL.orangeBodyHi:COL.tealBodyHi;
+  // mini flat Clawd: body slab + notched legs, no outline (matches drawClawdSprite)
+  block(ctx,x,y,10,8,body); block(ctx,x,y,3,1,hi);
+  block(ctx,x,y+8,2,2,body); block(ctx,x+4,y+8,2,2,body); block(ctx,x+8,y+8,2,2,body);
+  block(ctx,x+2,y+2,2,2,COL.eye); block(ctx,x+6,y+2,2,2,COL.eye);
 }
 function drawHUD(){
   ctx.textAlign='center'; ctx.textBaseline='middle';
